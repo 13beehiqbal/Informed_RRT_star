@@ -36,6 +36,10 @@
 #include <algorithm>
 #include "simple_queue.h"
 #include <unordered_map>
+#include <chrono> 
+#include <iostream>
+
+using namespace std::chrono;
 using Eigen::Vector2f;
 using Eigen::Rotation2Df;
 using amrl_msgs::AckermannCurvatureDriveMsg;
@@ -139,15 +143,109 @@ namespace navigation {
 		return Xrand;
 	}
 	
-	Vector2f Navigation::Steer(Vector2f x_start, Vector2f x_goal) {  //Xnearest, Xrand
-        float dist = std::min(step_len_, (x_goal-x_start).norm());
-        float theta = atan2f(x_goal.y()-x_start.y(), x_goal.x()-x_start.x());
-		//float theta2 = atan2f(odom_loc_.y()-x_goal.y(), odom_loc_.x()-x_goal.x());
-		//if (theta - theta2 > steer_kinematic_angle_constraint_)
-		//	theta = steer_kinematic_angle_constraint_ + theta2;
-		//else if( theta - theta2 < -steer_kinematic_angle_constraint_)
-		//	theta = -steer_kinematic_angle_constraint_+theta2;
-		//printf("Steer theta: %f \n", theta);
+	Vector2f Navigation::find_endpoint(float Ax, float Ay, float C, float start_angle, float L, bool clockwise) {
+		float r = 1/C; //sqrtf(Sq(Ax - Cx) + Sq(Ay - Cy));
+		r = abs(r);
+		float Cx, Cy;
+		float angle ;
+		if (clockwise) {
+			Cx = Ax;
+			angle = M_PI/2 + start_angle - L / r;
+			Cy = Ay - r;
+		}
+		else {
+			Cx = Ax; 
+			angle = -M_PI/2 + start_angle + L / r;
+			Cy = Ay + r;
+		}
+		float Bx = Cx + r * cosf(angle);
+		float By = Cy + r * sinf(angle);
+		return Vector2f(Bx, By);
+}
+
+	void Navigation::extend (Vector2f& x, float& xnew_angle, float start_angle, Vector2f& x_start, int k, float step_len_){
+		
+		if (curvatures_[k] == 0){
+			x.x() = x_start.x() + step_len_;
+			x.y() = x_start.y() ;
+			xnew_angle =  start_angle;
+		} 
+		else{
+			bool clockwise;
+			if (curvatures_[k]<0)
+				clockwise = false;
+			else 
+				clockwise = true;
+			
+			x = find_endpoint(x_start.x(),x_start.y(), curvatures_[k] ,start_angle, step_len_,clockwise);
+			xnew_angle = atan2f(x.y()-x_start.y(), x.x()-x_start.x());
+			
+/* 			float delta_theta;
+			Vector2f dxdy;
+			Matrix2f E;
+			
+			E << cosf(start_angle - M_PI/2), -sinf(start_angle - M_PI/2),
+				  sinf(start_angle - M_PI/2),    cosf(start_angle - M_PI/2);
+			float a = sqrtf(abs(curvatures_[k])/(2*step_len_));
+			float C = 0;
+			float S = 0;
+			for (float i = 0; i < sqrtf(2/M_PI) * a * step_len_ ; i+= 0.05){
+				S+= sinf(M_PI/2)*Sq(i);
+			}
+			S = sqrtf(M_PI/2)* S;
+			for (float i = 0; i < sqrtf(2/M_PI) * a * step_len_ ; i+= 0.05){
+				C+= cosf(M_PI/2)*Sq(i);
+			}
+			C = sqrtf(M_PI/2)* C;
+			
+			float sign = 0;
+			if (curvatures_[k]<0)
+				sign = -1;
+			else 
+				sign = 1;
+			dxdy = E * Vector2f(sign* 1/a * C, 1/a * S);
+			delta_theta = - (curvatures_[k] * Sq(step_len_))/(2*step_len_); 
+				
+			x.x() = x_start.x() + dxdy.x();
+			x.y() = x_start.y() + dxdy.y();
+			xnew_angle = start_angle + delta_theta;
+			printf("Extend %f, %f, %f, %f, %f, %f\n", x_start.x(), x_start.y(), start_angle, dxdy.x(),dxdy.y(),delta_theta);*/
+		}
+		
+	}
+	//Steer(Xnearest, Xrand, Xnearest_theta, Xnew, Xnew_angle)
+	void Navigation::Steer(Vector2f x_start, Vector2f x_goal, float steering_angle, Vector2f& xnew, float& xnew_angle) { 
+	    //Xnearest, Xrand, x nearest steering angle
+		/* float dmin = 1e12;
+		Vector2f x;
+		//float k_optimal;
+		float dist, x_angle;
+		
+		for (size_t k = 0; k < curvatures_.size() ; k++){
+			extend (x, x_angle, steering_angle, x_start, k, (x_goal-x_start).norm());
+			dist = (x - x_goal).norm();
+			if (dist<dmin){
+				dmin = dist;
+				//k_optimal = k;
+				xnew = x;
+				xnew_angle = x_angle;
+			}
+		}   */
+		
+		//Implementation 1
+		float dist = std::min(step_len_, (x_goal-x_start).norm());
+		float theta = atan2f(x_goal.y()-x_start.y(), x_goal.x()-x_start.x());
+		xnew_angle = theta;
+		xnew = Vector2f(x_start.x() + dist * cosf(theta), x_start.y() + dist * sinf(theta)); 
+		
+		//Implementation 2
+        /*float theta = atan2f(x_goal.y()-x_start.y(), x_goal.x()-x_start.x());
+		if (theta > steer_kinematic_angle_constraint_)
+			theta = steer_kinematic_angle_constraint_ ;
+		else if( theta < -steer_kinematic_angle_constraint_)
+			theta = -steer_kinematic_angle_constraint_; */
+		
+		//Implementation 3
 		/* Vector2f Xnew(x_start.x() + dist * cosf(theta), x_start.y() + dist * sinf(theta));
 		Vector2f Xnew_odom = Rotation2Df(-odom_angle_) * (Xnew - odom_loc_);
 		float ang = atan2f(Xnew_odom.y(), Xnew_odom.x());
@@ -157,9 +255,9 @@ namespace navigation {
 			ang = -M_PI/6;
 		Xnew_odom = Vector2f(dist * cosf(theta), dist * sinf(theta)); */
 		
-        return Vector2f(x_start.x() + dist * cosf(theta), x_start.y() + dist * sinf(theta));
- 	}
-	
+        //return Vector2f(x_start.x() + dist * cosf(theta), x_start.y() + dist * sinf(theta));
+		
+	}
 	bool Navigation::CollisionFree(Vector2f start, Vector2f end) {
 		bool intersects = false;
 		bool intersects_up = false;
@@ -190,6 +288,9 @@ namespace navigation {
 	
 	vector<int> Navigation::Near(Vector2f Xnew) {
 		// find the vertices that are within a given dist from Xnew
+		gamma_rrt_star_ = sqrtf(2 * 1.5) * sqrtf(1600/3.1416) + 10; // Hassan
+		//float gamma_rrt_star = 2.0; // Jamie
+		//float gamma_rrt_star = 20; // Trent 
 		int N = Tree_.size();
 		float radius = std::min(gamma_rrt_star_ * sqrtf(log(N)/N), eta_);
 		
@@ -252,8 +353,11 @@ namespace navigation {
 	void Navigation::InformedRRTstar() {
 		printf("Entering IRRT*\n");
 		printf("Starting point is (%f,%f)\n", odom_loc_.x(), odom_loc_.y());
+		
+		auto start = high_resolution_clock::now();
+		
 		Tree_.clear();
-		Tree_.push_back(Node(odom_loc_, 0.0f, -1)); // first node
+		Tree_.push_back(Node(odom_loc_, 0.0f, -1, odom_angle_)); // first node
 		soln_.clear();
 		Cmin_ = (nav_goal_loc_-odom_loc_).norm();
 		Xcenter_ = (odom_loc_+nav_goal_loc_) / 2;
@@ -263,6 +367,7 @@ namespace navigation {
 		int ndx_min = 0;
 		float Cmin, Cnew, Cnear;
 		Vector2f Xrand, Xnearest, Xnew, Xmin, Xnear;
+		float Xnearest_theta, Xnew_angle;
 		int nearest_ndx;
 		int num_iter_without_change = 0;
 		float last_Cbest = -1.0;
@@ -276,17 +381,17 @@ namespace navigation {
 					num_iter_without_change = 0;
 				}
 			}
+			if ((!soln_.empty()) && (Cbest==last_Cbest)) { num_iter_without_change++; }
+			else { num_iter_without_change = 0; }
+			last_Cbest = Cbest;
 			
 			Xrand = Sample(Cbest); // generate sample inside ellipse
 			nearest_ndx = Nearest(Xrand); // find closest node in Tree to Xrand
 			Xnearest = Tree_[nearest_ndx].loc;
-			Xnew = Steer(Xnearest, Xrand); // if Xrand is too far away, make it closer
+			Xnearest_theta = Tree_[nearest_ndx].pose;
+			Steer(Xnearest, Xrand, Xnearest_theta, Xnew, Xnew_angle); // if Xrand is too far away, make it closer
 			printf("Xrand=(%f,%f) , Xnearest=(%f,%f) , Xnew=(%f,%f)\n", Xrand.x(), Xrand.y(), Xnearest.x(), Xnearest.y(), Xnew.x(), Xnew.y());
 			if (CollisionFree(Xnearest, Xnew)) {
-				if ((!soln_.empty()) && (Cbest==last_Cbest)) { num_iter_without_change++; }
-				else { num_iter_without_change = 0; }
-				last_Cbest = Cbest;
-				
 				Cmin = Tree_[nearest_ndx].cost + (Xnew-Xnearest).norm(); // cost to Xnew
 				Xmin = Xnearest;
 				ndx_min = nearest_ndx;
@@ -320,7 +425,7 @@ namespace navigation {
 				if ((Xnew-nav_goal_loc_).norm() < 1.0) {
 					// move Xnew to Xgoal
 					float Cgoal = Tree_[ndx_min].cost + (nav_goal_loc_-Xmin).norm();
-					Node new_node = {nav_goal_loc_, Cgoal, ndx_min};
+					Node new_node = {nav_goal_loc_, Cgoal, ndx_min, nav_goal_angle_};
 					Tree_.push_back(new_node); // put Xgoal in the Tree
 					soln_.push_back(Tree_.size()-1); // add index to Xnew to the solution set
 					/*
@@ -332,7 +437,7 @@ namespace navigation {
 					*/
 				}
 				else {
-					Tree_.push_back(Node(Xnew, Cmin, ndx_min)); // put Xnew in the Tree
+					Tree_.push_back(Node(Xnew, Cmin, ndx_min, Xnew_angle)); // put Xnew in the Tree
 					printf("Adding Xnew to Tree: C=%f\n", Cmin);
 					/*
 					if (!CostMakesSense(Tree_.size()-1)) {
@@ -357,8 +462,45 @@ namespace navigation {
 		// Create path
 		CreatePath(best_ndx);
 		path_is_ready_ = true;
+		auto stop = high_resolution_clock::now(); 
+		auto duration = duration_cast<microseconds>(stop - start);
+		printf("Duration for finding path\n");
+		cout << duration.count() << endl; 
 	}
 	
+		void Navigation::FigureAddMap(double yg, double hg, double h, double x1, double y1){
+		//lower rectangle 
+	 	map_.lines.push_back(line2f(Vector2f(x1, y1), Vector2f(x1+yg, y1)));
+		map_.lines.push_back(line2f(Vector2f(x1, y1), Vector2f(x1, y1+yg)));
+		map_.lines.push_back(line2f(Vector2f(x1, y1+yg), Vector2f(x1+yg, y1+yg)));
+		map_.lines.push_back(line2f(Vector2f(x1+yg, y1), Vector2f(x1+yg, y1+yg))); 
+
+		
+		//upper rectangle	
+		double new_y = y1+yg+hg;
+		double new_delta = h -hg-yg;
+		map_.lines.push_back(line2f(Vector2f(x1, new_y), Vector2f(x1+yg, new_y)));
+		map_.lines.push_back(line2f(Vector2f(x1, new_y), Vector2f(x1, new_y+new_delta)));
+		map_.lines.push_back(line2f(Vector2f(x1, new_y+new_delta), Vector2f(x1+yg, new_y+new_delta)));
+		map_.lines.push_back(line2f(Vector2f(x1+yg, y1+ yg+hg), Vector2f(x1+yg, new_y+new_delta))); 
+	}
+	
+	void Navigation::FigureDisplay(double yg, double hg, double h, double x1, double y1){
+		//lower rectangle 
+		DrawLine(Vector2f(x1, y1), Vector2f(x1+yg, y1), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1, y1), Vector2f(x1, y1+yg), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1, y1+yg), Vector2f(x1+yg, y1+yg), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1+yg, y1), Vector2f(x1+yg, y1+yg), 0x000000, global_viz_msg_);
+		
+		//upper rectangle	
+		double new_y = y1+yg+hg;
+		double new_delta = h -hg-yg;
+		DrawLine(Vector2f(x1, new_y), Vector2f(x1+yg, new_y), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1, new_y), Vector2f(x1, new_y+new_delta), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1, new_y+new_delta), Vector2f(x1+yg, new_y+new_delta), 0x000000, global_viz_msg_);
+		DrawLine(Vector2f(x1+yg, y1+ yg+hg), Vector2f(x1+yg, new_y+new_delta), 0x000000, global_viz_msg_);	
+		
+	}
 // *****************************************************************
 // **************** END INFORMED RRT* ******************************
 // *****************************************************************
@@ -366,8 +508,10 @@ namespace navigation {
 	void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
 		printf("Setting Nav Goal to %f %f\n", loc[0], loc[1]);
 		nav_goal_loc_ = loc;
+		nav_goal_angle_ = angle;
 		nav_target_set_ = true;
 		path_is_ready_ = false;
+		
 		InformedRRTstar();
 	}
 
@@ -385,6 +529,17 @@ namespace navigation {
 			initial_odom_loc_ = loc;
 			initial_odom_angle_ = angle;
 			is_odom_init_ = true;
+			
+			//populate admissible curvatures for steer function
+			curvatures_.clear();
+			for (float curvature = -curvature_range_; curvature <= curvature_range_; curvature += 0.05)
+			{
+				curvatures_.push_back(curvature);
+			}
+			
+			FigureAddMap(1.5,0.45,6.0,32.0,-18.0);
+			FigureDisplay(1.5,0.45,6.0,32.0,-18.0);
+			//viz_pub_.publish(global_viz_msg_);
 		}
 
 		odom_loc_ = loc;
