@@ -159,8 +159,7 @@ int main(int argc, char** argv) {
 
 	RateLoop loop(20.0);
 	navigation_->InitializeMap("GDC1");
-	//navigation_->CreateObstacles(1.0, 50);
-
+	
 	while (run_ && ros::ok()) {
 		ros::spinOnce();
 		navigation_->Run();

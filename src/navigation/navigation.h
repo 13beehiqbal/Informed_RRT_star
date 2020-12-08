@@ -48,8 +48,9 @@ namespace navigation {
 	  Eigen::Vector2f loc;
 	  float cost;
 	  int parent;
+	  float pose;
 	  // constructor
-	  Node(Eigen::Vector2f loc_in, float c_in, int p_in) : loc(loc_in), cost(c_in), parent(p_in) {}
+	  Node(Eigen::Vector2f loc_in, float c_in, int p_in, float pose_in) : loc(loc_in), cost(c_in), parent(p_in), pose(pose_in) {}
 	};
 
     class Navigation {
@@ -97,8 +98,10 @@ namespace navigation {
 			
         // Draw random sample in map
         Eigen::Vector2f Sample(float Cmax);
-        // Move randomly sampled point close to Tree
-        Eigen::Vector2f Steer(Eigen::Vector2f x_start, Eigen::Vector2f x_goal);
+		// Move randomly sampled point close to Tree
+        void Steer(Eigen::Vector2f x_start, Eigen::Vector2f x_goal, float steering_angle, Eigen::Vector2f& xnew, float& xnew_angle);
+        //extend edges keeping in view the kinematic constraints 
+		void extend (Eigen::Vector2f& x, float& xnew_angle, float angle, Eigen::Vector2f& x_start, int k, float step_len_);
         // Test if the random sample point is valid
         bool CollisionFree(Eigen::Vector2f start, Eigen::Vector2f end);
         // Find all nodes within a given range from new random sample
@@ -115,6 +118,11 @@ namespace navigation {
         void CreateObstacles(float unit, int number_of_points);
         // Used by CreateObstacles()
         double GenRand(double max, double min );
+		// Find end point of arc given other end point and curvature
+		Eigen::Vector2f find_endpoint(float Ax, float Ay, float C, float start_angle, float L, bool clockwise);
+		//obstacles from the paper, added to map and visualization
+		void FigureDisplay(double yg, double hg, double h, double x1, double y1);
+		void FigureAddMap(double yg, double hg, double h, double x1, double y1);
         
 		
 	private:
@@ -165,7 +173,7 @@ namespace navigation {
 		float curr_fpl_ = 0.0; // meters
         float curr_curvature_ = 0.0; // 1/m
         float curr_clearance_ = 2.0; // meters
-        float maxClearance_ = 1.5; // I don't care if it's ever more than this
+        float maxClearance_ = 1.5; //
         float dist_to_stop_; // meters
 		bool need_to_replan_ = true; // we have deviated beyond goal_dist_ from the path
 		int curr_path_ndx_ = 0;
@@ -186,10 +194,12 @@ namespace navigation {
 		float step_len_ = 0.25;
 		float delta_ = 0.5;
 		Eigen::Vector2f map_space_x_ = Eigen::Vector2f(-42.0 , 42.0);
-		Eigen::Vector2f map_space_y_ = Eigen::Vector2f(-20.0 , 35.0);
-		float eta_ = 1330.0;
+		Eigen::Vector2f map_space_y_ = Eigen::Vector2f(-10.0 , 23.0);
+		float eta_ = 20.0;
 		float gamma_rrt_star_ = 20; //sqrtf(2 * 1.5) * sqrt(10);
 		float steer_kinematic_angle_constraint_ = M_PI/1.25;
+		float curvature_range_ = 2.0;
+		std::vector<float> curvatures_;
     };
 
 }  // namespace navigation
